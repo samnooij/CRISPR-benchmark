@@ -1,0 +1,12 @@
+# Ignore everything
+/*
+
+# Except what is useful for this repository
+!/config
+!/doc
+!/envs
+!/git
+!/workflow
+!.gitignore
+!pyproject.toml
+!README.md

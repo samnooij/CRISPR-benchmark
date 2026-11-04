@@ -1,0 +1,14 @@
+default_job:
+  threads: 1
+  memory: 1024
+  time: 60
+
+cctk:
+  threads: 16
+  memory: 4096
+  time: 60
+
+padloc:
+  threads: 16
+  memory: 1024
+  time: 30

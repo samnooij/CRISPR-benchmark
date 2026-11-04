@@ -1,0 +1,15 @@
+name: crisprdetect
+
+dependencies:
+- clustalw
+- emboss
+- viennarna
+- cd-hit
+- blast
+- hmmer
+- perl-parallel-forkmanager
+- libiconv
+
+channels:
+- bioconda
+- conda-forge

@@ -1,0 +1,6 @@
+[submodule "git/CRISPRDetect_3.0"]
+	path = git/CRISPRDetect_3.0
+	url = git@github.com:ambarishbiswas/CRISPRDetect_3.0.git
+[submodule "git/CRISPRCasFinder"]
+	path = git/CRISPRCasFinder
+	url = git@github.com:dcouvin/CRISPRCasFinder.git
