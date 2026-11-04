@@ -5,15 +5,15 @@ in genome sequences of prokaryotes.
 
 ## Index
 
-1. [Tools tested](#tools-to-test)
-2. [Datasets](#datasets)
-  - [CCTyper](#cctyper)
-  - [Campylobacter](#campylobacter)
-  - [CRISPR-negative](#crispr-negative-genomes)
-  - [Single spacer arrays](#single-crispr-spacer)
-  - [Type II-C](#type-ii-c)
-3. [Licence](#licence)
-4. [Citation](#citation)
+1. [**Tools tested**](#tools-to-test)
+2. [**Datasets**](#datasets)
+    - [CCTyper](#cctyper)
+    - [Campylobacter](#campylobacter)
+    - [CRISPR-negative](#crispr-negative-genomes)
+    - [Single spacer arrays](#single-crispr-spacer)
+    - [Type II-C](#type-ii-c)
+3. [**Licence**](#licence)
+4. [**Citation**](#citation)
 
 ## Tools to test
 
