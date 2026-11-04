@@ -1,11 +1,19 @@
----
-Author: Sam Nooij
-Date: 2026-03-27
-title: "CRISPR-Cas benchmark"
-geometry: margin=2cm
-colorlinks: true
-mainfont: Open Sans
----
+# CRISPR-Cas benchmark
+
+A benchmark of bioinformatics tools for the identification of CRISPR-Cas defence systems
+in genome sequences of prokaryotes.
+
+## Index
+
+1. [Tools tested](#tools-to-test)
+2. [Datasets](#datasets)
+  - [CCTyper](#cctyper)
+  - [Campylobacter](#campylobacter)
+  - [CRISPR-negative](#crispr-negative-genomes)
+  - [Single spacer arrays](#single-crispr-spacer)
+  - [Type II-C](#type-ii-c)
+3. [Licence](#licence)
+4. [Citation](#citation)
 
 ## Tools to test
 
@@ -114,3 +122,11 @@ only the sequences that are longer than 100kb. That is, one (1) sequence
 is removed from the 'single CRISPR spacer' set, and 166 from the II-C
 dataset (leaving 477 sequences longer than 100kb, of which 97 are
 part of the 'Makarova2019' or 'CCTyper' dataset, 380 are not).
+
+## Licence
+
+This project is licensed under the [BSD 3-clause licence](LICENSE).
+
+## Citation
+
+To cite this project, please see its [citation file](CITATION.cff).
