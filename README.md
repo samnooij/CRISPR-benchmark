@@ -23,14 +23,14 @@ CRISPR and/or Cas sequences as output.
 Tools we propose to include are:
 
 - [x] CCTyper (version 1.8.0 (old) and 1.9.0+ (faster))
-- [ ] CRISPRidentify (adapted v1.2.1)
+- [x] CRISPRidentify (adapted v1.2.1)
 - [x] CRISPRDetect (no license, Otago NZ - try installing first, ask for licence if it works;
   install dependencies with mamba, download GeneMarkS from exon.gatech.edu)
 - [x] CRISPRCasFinder (install dependencies through Pixi; use Perl script from GitHub)
 - [x] CRISPRclassify (no license, North Carolina State U  - Rodolphe Barrangou emailed permission on 7 April 2026)
 - [x] PADLOC
 - [x] DefenseFinder
-- [ ] CRISPRdisco
+- [x] CRISPRdisco
 - [x] CCTK (CRISPR Comparison Toolkit)
 - [ ] CRISPRCasStack (no license, Harbin CN - try installing first)
 - [ ] EVO2?
@@ -106,7 +106,7 @@ CRISPR subtype II-C,
 [Fuessner2025](https://doi.org/10.1093/femsml/uqaf007)),
 the authors describe a dataset with **643 sequences** of
 organisms containing a type II-C CRISPR-Cas system. These comprise
-complete genomes as well as separate contigs frmo short-read, shotgun
+complete genomes as well as separate contigs from short-read, shotgun
 sequenced isolates. As such, the length of these sequences is variable.
 Within this dataset are 97 sequences that are also part of the 'CCTyper'
 dataset; 546 are novel.

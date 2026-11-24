@@ -7,3 +7,6 @@
 [submodule "git/CRISPRidentify"]
 	path = git/CRISPRidentify
 	url = git@github.com:Necopy-byte/CRISPRidentify.git
+[submodule "git/CRISPRdisco"]
+	path = git/CRISPRdisco
+	url = git@github.com:CRISPRlab/CRISPRdisco.git

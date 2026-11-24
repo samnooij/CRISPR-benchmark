@@ -1,0 +1,14 @@
+name: crisprdisco
+
+dependencies:
+- python=2.7.12
+- blast=2.6.0
+- minced=0.2.0
+- hmmer=3.1b2
+- conda=4.1.11
+- prodigal=2.6.3
+- pip=20.1.1
+
+channels:
+- conda-forge
+- bioconda

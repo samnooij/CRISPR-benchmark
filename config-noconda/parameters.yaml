@@ -8,7 +8,17 @@ crisprcasfinder:
   memory: 8192
   time: 300
 
+crisprdisco:
+  threads: 1
+  memory: 8192
+  time: 120
+
 defensefinder:
   threads: 16
   memory: 8192
   time: 1200
+
+prodigal:
+  threads: 1
+  memory: 8192
+  time: 120

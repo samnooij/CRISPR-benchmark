@@ -3,6 +3,7 @@
 
 # Except what is useful for this repository
 !/config
+!/config-noconda
 !/doc
 !/envs
 !/git
