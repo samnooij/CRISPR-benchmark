@@ -8,6 +8,11 @@ cctk:
   memory: 4096
   time: 60
 
+cctyper:
+  threads: 16
+  memory: 8192
+  time: 1200
+
 padloc:
   threads: 16
   memory: 1024
