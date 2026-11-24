@@ -3,6 +3,11 @@ default_job:
   memory: 1024
   time: 60
 
+crisprcasfinder:
+  threads: 16
+  memory: 8192
+  time: 300
+
 defensefinder:
   threads: 16
   memory: 8192
