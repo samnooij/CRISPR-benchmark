@@ -6,6 +6,7 @@
 !/doc
 !/envs
 !/git
+!/resources
 !/workflow
 !.gitignore
 !pyproject.toml

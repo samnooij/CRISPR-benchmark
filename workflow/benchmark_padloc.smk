@@ -1,6 +1,6 @@
 configfile: Path("config/parameters.yaml")
 
-DATASETS = [ "positive", "negative", "single-100kb", "2c-100kb", "campy" ]
+DATASETS = [ "positive", "negative-100kb", "single-100kb", "2c-100kb", "campy" ]
 
 rule all:
     input:
