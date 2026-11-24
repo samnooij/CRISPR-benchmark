@@ -1,0 +1,643 @@
+#! /usr/bin/env python3
+
+## CCTyper extender:
+## Read the output files to generate useful files for downstream processing:
+## 1. BED files for CRISPR-Cas loci, CRISPR arrays and cas genes
+## 2. Comprehensive CRISPR and cas gene output in one file
+##
+## To make this, I will need a number of functions:
+##  - Take a directory from the command-line
+##  - Identify relevant CCTyper output files
+##      - CRISPR_Cas.tab for CRISPR-Cas locus (reports positions of cas genes!)
+##      - cas_operons_putative.tab for cas gene info
+##      - hmmer.tab for gene lengths
+##      - crisprs_all.tab for CRISPR array info
+##
+## For the BED files, use the following fields:
+## 1. contig ID ('chromosome')
+## 2. start position
+## 3. end position
+## 4. name (CRISPR array/cas operon ID)
+## 5. score (must be between 0 and 1000: number of CRISPR repeats or cas genes)
+## 6. strand (+, - or .)
+
+### Algorithm overview:
+#   For each genome screened:
+# 1. Read the CRISPR_Cas.tab file, collecting info on complete arrays/loci
+#   - If CRISPR-Cas is present, look up additional CRISPR repeat and
+#     spacer info, and cas gene info.
+# 2. Look for cas operons (without CRISPR array).
+#   - and collect all info
+# 3. And look for CRISPR arrays without cas genes ('orphan arrays')
+#   - collect all info
+# 4. Write the gathered information to CSV and BED files.
+# (Also refer to these number in the function `main()` at the bottom!)
+
+from pathlib import Path
+import pandas as pd
+import numpy as np
+import string
+from operator import itemgetter
+import ast
+import sys  # for writing stdout to log file
+
+
+def extract_crispr_cas_info(crispr_cas_file):
+    """
+    Takes a `CRISPR_Cas.tab` file to read relevant information:
+    1. Contig ID
+       - from that, derive sample accession
+    2. Cas gene operon ID
+    3. Cas gene start and end positions
+    4. Distance from cas genes to CRISPR array
+    5. CRISPR array ID
+    6. That it is a complete CRISPR-Cas system
+    """
+    cc_data = pd.read_csv(crispr_cas_file, sep="\t")
+    cc_list = []
+
+    # The file may have multiple entries (arrays/loci):
+    #  read them as a list
+    contigs = list(cc_data["Contig"])
+    # Extract sample name, which is split by a dot: 'sample.contig'
+    sample = [contig.split(".")[0] for contig in contigs]
+    operons = list(cc_data["Operon"])  # cas gene operon ID as string
+    crisprs = list(cc_data["CRISPRs"])  # CRISPR array ID
+    crisprs = [crispr.strip("[]'\"") for crispr in crisprs]
+    cas_positions = list(cc_data["Operon_Pos"])
+    distances = list(cc_data["Distances"])
+
+    # For each array that is in the CRISPR-Cas file:
+    for number in range(len(crisprs)):
+        # Collect the matching data
+        positions = cas_positions[number].strip("[]").split(", ")
+        start = int(positions[0])
+        stop = int(positions[1])
+        distance = distances[number].strip("[]")
+
+        # Save that in a list
+        cc_list.append(
+            [
+                sample[number],
+                contigs[number],
+                operons[number],
+                start,
+                stop,
+                distance,
+                crisprs[number],
+                "CRISPR-Cas",
+            ]
+        )
+
+    # And return that list object
+    return cc_list
+
+
+def annotate_cas_operon(operon, work_dir):
+    """
+    Take an operon ID to extract relevant information from
+    `cas_operons_putative.tab` and `hmmer.tab`. This includes:
+    1. A list of cas genes
+    2. The number of genes
+    3. Strand (inferred from cas genes: +, - or '.' for unknown/ambiguous)
+    4. Prediction type
+    5. Prediction score
+    6. Interference completeness
+    7. Adaptation completeness
+    """
+    cas_file = snakemake.input["cas"]
+    cas_data = pd.read_csv(cas_file, sep="\t")
+    hmmer_file = snakemake.input["hmmer"]
+    hmmer_data = pd.read_csv(hmmer_file, sep="\t")
+
+    contig = operon.split("@")[0]
+
+    # Use a try-except construct when searching for Cas gene data,
+    # as some cas operon annotations by CCTyper can go wrong and lead to
+    # missing operons in the output table.
+    # (Example: SAMN06246873.contig00003@3 from ATB, Campylobacter)
+    try:
+        # Use `ast.literal_eval()` to read CCTyper's output file lists as list
+        # rather than strings.
+        cas_genes = ast.literal_eval(
+            cas_data[cas_data["Operon"] == operon]["Genes"].iloc[0]
+        )
+        number_of_genes = len(cas_genes)
+
+        # Try to infer strand from these cas genes:
+        strand_adaptation = cas_data[cas_data["Operon"] == operon][
+            "Strand_Adaptation"
+        ].iloc[0]
+        strand_interference = cas_data[cas_data["Operon"] == operon][
+            "Strand_Interference"
+        ].iloc[0]
+
+        if strand_adaptation == 1 and strand_interference == 1:
+            strand = "+"
+        elif strand_adaptation == -1 and strand_interference == -1:
+            strand = "-"
+        else:
+            strand = "."
+
+        best_type = cas_data[cas_data["Operon"] == operon]["Best_type"].iloc[0]
+        best_score = cas_data[cas_data["Operon"] == operon]["Best_score"].iloc[0]
+        complete_interference = cas_data[cas_data["Operon"] == operon][
+            "Complete_Interference"
+        ].iloc[0]
+        complete_adaptation = cas_data[cas_data["Operon"] == operon][
+            "Complete_Adaptation"
+        ].iloc[0]
+
+        gene_lengths = []  # Store as list (need to be extracted from `hmmer.tab`)
+        for index in range(len(cas_genes)):
+            gene = cas_genes[index]
+            # Use `ast.literal_eval()` to read CCTyper's output file lists as list
+            # rather than strings.
+            position = ast.literal_eval(
+                cas_data[cas_data["Operon"] == operon]["Positions"].iloc[0]
+            )[index]
+            # Now filter the matching info from `hmmer.tab`:
+            # For each ORF take the lowest available E-value (= best hit).
+            # Thanks to Sergio Polimante (2021) and Ynjxsjmh (2022)!
+            #  https://stackoverflow.com/a/73383113
+            hmmer_data = hmmer_data[
+                hmmer_data["Eval"] == hmmer_data.groupby("ORF")["Eval"].transform("min")
+            ]
+
+            orf = "%s_%s" % (contig, position)
+            gene_length = int(hmmer_data[hmmer_data["ORF"] == orf]["qlen"].iloc[0])
+            gene_lengths.append(gene_length)
+
+        cas_operon_info = [
+            best_type,
+            best_score,
+            cas_genes,
+            complete_interference,
+            complete_adaptation,
+            strand,
+            number_of_genes,
+            gene_lengths,
+        ]
+
+    except IndexError:
+        print(f"No Cas information found for {operon}, printing empty output")
+        cas_operon_info = 8 * [pd.NA]
+
+    return cas_operon_info
+
+
+def annotate_crispr_array(crispr, work_dir):
+    """
+    Given a list of CRISPR array IDs, look up relevant information in
+    `crisprs_all.tab`. This includes:
+    1. CRISPR start position
+    2. CRISPR end position
+    3. 'Trusted' (prediction evaluation by CCTyper)
+    4. Repeat subtype
+    5. Repeat subtype probability
+    6. Consensus repeat
+    7. Number of repeats
+    8. Repeat length
+    9. Repeat identity (BLAST to database of known repeats?)
+    10. Spacer mean length
+    11. Spacer identity
+    12. Spacer length standard error of the mean (SEM)
+    """
+    ## Read CRISPR array information to return as a list
+    crispr_file = snakemake.input["crispr"]
+    crispr_data = pd.read_csv(crispr_file, sep="\t")
+    crispr_info = []
+
+    contig = crispr.rstrip(string.digits).rstrip("_")
+    crispr_start = int(crispr_data[crispr_data["CRISPR"] == crispr]["Start"].iloc[0])
+    crispr_stop = int(crispr_data[crispr_data["CRISPR"] == crispr]["End"].iloc[0])
+    number_of_repeats = crispr_data[crispr_data["CRISPR"] == crispr]["N_repeats"].iloc[
+        0
+    ]
+
+    trusted = crispr_data[crispr_data["CRISPR"] == crispr]["Trusted"].iloc[0]
+    repeat_subtype = crispr_data[crispr_data["CRISPR"] == crispr]["Subtype"].iloc[0]
+    repeat_subtype_prob = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Subtype_probability"
+    ].iloc[0]
+    consensus_repeat = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Consensus_repeat"
+    ].iloc[0]
+    repeat_len = crispr_data[crispr_data["CRISPR"] == crispr]["Repeat_len"].iloc[0]
+    repeat_identity = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Repeat_identity"
+    ].iloc[0]
+    spacer_len_avg = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Spacer_len_avg"
+    ].iloc[0]
+    spacer_identity = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Spacer_identity"
+    ].iloc[0]
+    spacer_len_sem = crispr_data[crispr_data["CRISPR"] == crispr][
+        "Spacer_len_sem"
+    ].iloc[0]
+
+    crispr_info = [
+        crispr_start,
+        crispr_stop,
+        str(trusted),
+        repeat_subtype,
+        repeat_subtype_prob,
+        consensus_repeat,
+        number_of_repeats,
+        repeat_len,
+        repeat_identity,
+        spacer_len_avg,
+        spacer_identity,
+        spacer_len_sem,
+    ]
+
+    return crispr_info
+
+
+def combine_multiple_arrays(crispr, work_dir):
+    """
+    Sometimes CCTyper reports multiple CRISPR arrays per CRISPR-Cas locus.
+    In such a case, I still want to report one line with CRISPR and cas
+    information. Therefore, combine the information of these multiple
+    arrays in one list.
+    """
+    # In which case this script summarises them and ...
+    crisprs = crispr.split(",")
+    crispr_data = []
+    crispr_ids = []
+    for crispr in crisprs:
+        crispr = crispr.strip("' ")  # remove spaces and single quotes
+        crispr_ids.append(crispr)  # Store CRISPR IDs to generate custom ID
+        crispr_data.append(annotate_crispr_array(crispr=crispr, work_dir=work_dir))
+    # ... reports statistics as if they were one.
+
+    # The start position of the first array is used as stard
+    crispr_start = crispr_data[0][0]
+    # The end position of the last array is used as stop
+    crispr_stop = crispr_data[-1][1]
+    # For simplicity, the prediction and consensus repeat are copied from the first array
+    trusted = [sublist[2] for sublist in crispr_data]
+    repeat_subtype = [sublist[3] for sublist in crispr_data]
+    # Take the mean of subtype probability scores
+    repeat_subtype_prob = [float(sublist[4]) for sublist in crispr_data]
+    consensus_repeat = [sublist[5] for sublist in crispr_data]
+    # The number of repeats is the sum of repeats in all arrays
+    number_of_repeats = sum([sublist[6] for sublist in crispr_data])
+    # For repeat and spacer lengths, calculate means,
+    # #  taking into account number of repeats/spacers
+    repeat_len = sum([sublist[7] * sublist[6] for sublist in crispr_data]) / sum(
+        [sublist[6] for sublist in crispr_data]
+    )
+    repeat_identity = sum([sublist[8] * sublist[6] for sublist in crispr_data]) / sum(
+        [sublist[6] for sublist in crispr_data]
+    )
+    spacer_len_avg = sum([sublist[9] * sublist[6] for sublist in crispr_data]) / sum(
+        [sublist[6] for sublist in crispr_data]
+    )
+    spacer_identity = sum([sublist[10] * sublist[6] for sublist in crispr_data]) / sum(
+        [sublist[6] for sublist in crispr_data]
+    )
+    spacer_len_sem = sum([sublist[11] * sublist[6] for sublist in crispr_data]) / sum(
+        [sublist[6] for sublist in crispr_data]
+    )
+
+    # Make a custom crispr name, like 'CRISPR_1-n',
+    # where n is the number of arrays detected.
+    combined_crispr_name = "-".join([crispr_ids[0], crispr_ids[-1].split("_")[-1]])
+    # And overwrite the CRISPR-Cas information list with this
+    # custom name.
+    print("\nCombined CRISPR name: %s" % combined_crispr_name)
+
+    crispr_info = [
+        crispr_start,
+        crispr_stop,
+        str(trusted),
+        repeat_subtype,
+        repeat_subtype_prob,
+        consensus_repeat,
+        number_of_repeats,
+        repeat_len,
+        repeat_identity,
+        spacer_len_avg,
+        spacer_identity,
+        spacer_len_sem,
+    ]
+
+    # Note that this also affects BED file generation!
+    print("Combined CRISPR array info: %s" % crispr_info)
+
+    return crispr_info, combined_crispr_name
+
+
+def extract_bed_entries(info_df):
+    """
+    Given a dataframe, extract relevant information from CRISPR arrays,
+    cas genes, and entire CRISPR-Cas loci and write to BED files.
+    """
+    info_df["crisprcas_start"] = info_df[
+        ["CRISPR_start", "CRISPR_end", "Cas_start", "Cas_end"]
+    ].min(axis=1, skipna=True)
+    info_df["crisprcas_end"] = info_df[
+        ["CRISPR_start", "CRISPR_end", "Cas_start", "Cas_end"]
+    ].max(axis=1, skipna=True)
+
+    crispr_cas_bed_df = (
+        info_df[info_df["System"] == "CRISPR-Cas"]
+        .filter(
+            [
+                "Contig",
+                "crisprcas_start",
+                "crisprcas_end",
+                "CRISPR_ID",
+                "N_repeats",
+                "Strand_cas",
+            ]
+        )
+        .dropna()
+    )
+    if not crispr_cas_bed_df.empty:
+        crispr_cas_bed_df.to_csv(
+            snakemake.output["locus_bed"],
+            index=False,
+            header=False,
+            sep="\t",
+            float_format="%.0f",
+        )
+    else:
+        pass
+
+    crispr_bed_df = info_df.filter(
+        ["Contig", "CRISPR_start", "CRISPR_end", "CRISPR_ID", "N_repeats", "Strand_cas"]
+    ).dropna()
+
+    if not crispr_bed_df.empty:
+        crispr_bed_df.to_csv(
+            snakemake.output["array_bed"],
+            index=False,
+            header=False,
+            sep="\t",
+            float_format="%.0f",
+        )
+    else:
+        pass
+
+    orphan_crispr_bed_df = (
+        info_df[info_df["System"] == "Orphan_CRISPR"]
+        .filter(
+            [
+                "Contig",
+                "CRISPR_start",
+                "CRISPR_end",
+                "CRISPR_ID",
+                "N_repeats",
+                "Strand_cas",
+            ]
+        )
+        .dropna()
+    )
+
+    if not orphan_crispr_bed_df.empty:
+        orphan_crispr_bed_df.to_csv(
+            snakemake.output["orphan_bed"],
+            index=False,
+            header=False,
+            sep="\t",
+            float_format="%.0f",
+        )
+    else:
+        pass
+
+    cas_bed_df = info_df.filter(
+        ["Contig", "Cas_start", "Cas_end", "Operon_ID", "N_genes", "Strand_cas"]
+    ).dropna()
+
+    if not cas_bed_df.empty:
+        cas_bed_df.to_csv(
+            snakemake.output["operon_bed"],
+            index=False,
+            header=False,
+            sep="\t",
+            float_format="%.0f",
+        )
+    else:
+        pass
+
+    return 0
+
+
+def verify_presence(lists: list, pattern: str, position: int):
+    """
+    Check the presence of an ID in a nested list with CRISPR-Cas information,
+    using the corresponding position. E.g., if you want to check if 'crispr1'
+    is present in the list [['sample1', 'contig1', 'crispr1', 0, 500, ...], [...]],
+    you provide this nested list, the pattern 'crispr1', and position 2
+    (0-based, so the third position is 2). It then checks if 'crispr1'
+    is written in any sublist at position 2 and return True if that is the case,
+    False otherwise.
+    """
+    for i in range(len(lists)):
+        try:
+            if lists[i][position] == pattern:
+                return True
+        except TypeError:
+            # If the list contains NA values, the test is 'ambiguous',
+            # so skip those and just continue.
+            continue
+
+    return False
+
+
+def main():
+    with open(snakemake.log[0], "w") as sys.stdout:
+        # Check if the provided directory exists and is a directory
+        work_dir = Path(snakemake.params["input_dir"])
+        assert work_dir.is_dir(), (
+            "%s is not a directory! Please provide a valid directory." % work_dir
+        )
+
+        ## Initialise a list to combine (append) all information
+        crispr_cas_info = []
+
+        ## 1. Look for the CRISPR-Cas file
+        crispr_cas_file = Path(snakemake.input["crispr_cas"])
+        if crispr_cas_file.is_file():
+            print("CRISPR-Cas found in %s" % work_dir.name)
+
+            cc_info = extract_crispr_cas_info(crispr_cas_file=crispr_cas_file)
+            # Write one line with CRISPR-Cas info from the whole input file
+            # (this can be very long for concatenated batch files!)
+            print("\nCRISPR-Cas info: %s" % cc_info)
+
+            for index in range(len(cc_info)):
+                array = cc_info[index]
+                operon = array[2]
+                cas_info = annotate_cas_operon(operon=operon, work_dir=work_dir)
+
+                print("\nCas operon info: %s" % cas_info)
+
+                crispr = array[6]
+
+                # Note that CCTyper may report CRISPR-Cas with multiple CRISPR arrays.
+                # These are then reported as Python list, that is, separated by commas.
+                if not "," in crispr:
+                    crispr_info = annotate_crispr_array(
+                        crispr=crispr, work_dir=work_dir
+                    )
+                    print("\nCRISPR array info: %s" % crispr_info)
+
+                # If a comma occurs in the CRISPR identifier, there are multiple.
+                else:
+                    crispr_info, combined_crispr_name = combine_multiple_arrays(
+                        crispr=crispr, work_dir=work_dir
+                    )
+
+                    # Overwrite the CRISPR-Cas information list with this
+                    # custom name.
+                    cc_info[index][6] = combined_crispr_name
+
+                total_info = (
+                    # Sample accession, contig ID, System configuration, CRISPR ID
+                    list(itemgetter(0, 1, 7, 6)(array))
+                    # start, end, trusted, subtype, subtype_prob, consensus_repeat, N_repeats, repeat_len, repeat_identity, spacer_avg_len, spacer_identity, spacer_len_sem
+                    + crispr_info
+                    + [operon]
+                    # Distance, operon start-stop
+                    + list(itemgetter(5, 3, 4)(array))
+                    # type, score, genes, interference, adaptation, strand, N_genes, gene_lengths
+                    + cas_info
+                )
+
+                crispr_cas_info.append(total_info)
+
+        else:
+            print("Sample %s has no complete CRISPR-Cas system." % work_dir.name)
+
+        ## 2. Look for seperately reported cas operons
+        cas_file = snakemake.input["cas"]
+        with open(cas_file, "r") as infile:
+            infile.readline()  # Skip the first (header) line
+
+            for line in infile:
+                elements = line.split("\t")
+                operon = elements[1]  # The second entry (0-based) is the operon ID
+                sample = operon.split(".")[0]
+                contig = operon.split("@")[0]
+                start = int(elements[2])
+                stop = int(elements[3])
+                prediction = elements[4]
+
+                # only consider operons that are not predicted to be 'False':
+                if prediction != "False":
+                    # And then only those that are not part of a CRISPR-Cas locus
+                    if verify_presence(
+                        lists=crispr_cas_info, pattern=operon, position=16
+                    ):
+                        # If there is any match, continue with the next
+                        continue
+                    else:
+                        crispr_cas_info.append(
+                            [sample, contig, "Only_cas"]
+                            + 13 * [np.nan]
+                            + [operon]
+                            + [np.nan]
+                            + [start, stop]
+                            + annotate_cas_operon(operon=operon, work_dir=work_dir)
+                        )
+                        print(" - separate cas operon: %s" % operon)
+
+                else:
+                    # if the prediction is False, continue searching
+                    continue
+
+        ## 3. Finally, check for CRISPR arrays that may have no cas genes nearby
+        crispr_file = Path(snakemake.input["crispr"])
+
+        # Start reading the CRISPR array IDs
+        with open(crispr_file, "r") as infile:
+            infile.readline()  # Skip the first (header) line
+            for line in infile:
+                elements = line.split("\t")
+                crispr_id = elements[1]  # The second entry (0-based) is the ID
+                sample = crispr_id.split(".")[0]
+                contig = crispr_id.split("_")[0]
+                trusted = elements[11]
+
+                # only consider CRISPR arrays that are 'trusted':
+                # default = repeat ID > 70%, spacer ID < 55% and spacer SEM < 3.5
+                if trusted != "False":
+                    # Now check if it is not part of a CRISPR-Cas system
+                    try:
+                        if verify_presence(
+                            lists=crispr_cas_info, pattern=crispr_id, position=3
+                        ):
+                            pass  # Ignore the CRISPR that is already saved as CRISPR-Cas
+                        else:
+                            print(" - orphan CRISPR: %s" % crispr_id)
+
+                            crispr_cas_info.append(
+                                [sample, contig, "Orphan_CRISPR", crispr_id]
+                                + annotate_crispr_array(
+                                    crispr=crispr_id, work_dir=work_dir
+                                )
+                                + 9 * [np.nan]
+                                + ["."]
+                                + 2 * [np.nan]
+                            )
+
+                    except NameError:
+                        # If CRISPR-Cas info has not been collected yet, lookup the CRISPR info!
+                        print(" - orphan CRISPR: %s" % crispr_id)
+                        crispr_cas_info.append(
+                            [sample, contig, "Orphan_CRISPR", crispr_id]
+                            + annotate_crispr_array(crispr=crispr_id, work_dir=work_dir)
+                            + 9 * [np.nan]
+                            + ["."]
+                            + 2 * [np.nan]
+                        )
+
+        ## Combine the information in one dataframe
+        crispr_cas_df_columns = [
+            "Sample_accession",
+            "Contig",
+            "System",  # CRISPR-Cas, orphan CRISPR, or only cas genes
+            "CRISPR_ID",
+            "CRISPR_start",
+            "CRISPR_end",
+            "Trusted",
+            "Repeat_subtype",
+            "Repeat_type_probability",
+            "Consensus_repeat",
+            "N_repeats",
+            "Repeat_len",
+            "Repeat_identity",
+            "Spacer_len_avg",
+            "Spacer_identity",
+            "Spacer_len_sem",
+            "Operon_ID",
+            "Distance_to_CRISPR",
+            "Cas_start",
+            "Cas_end",
+            "Best_type",
+            "Best_score",
+            "Genes",
+            "Complete_interference",
+            "Complete_adaptation",
+            "Strand_cas",
+            "N_genes",
+            "Gene_lengths_aa",
+        ]
+        crispr_cas_df = pd.DataFrame(crispr_cas_info, columns=crispr_cas_df_columns)
+
+        crispr_cas_file = Path(snakemake.output["table"])
+        crispr_cas_df.to_csv(crispr_cas_file, index=False, na_rep="NA", sep="\t")
+        print("Wrote CRISPR-Cas information to: %s" % crispr_cas_file)
+
+        extract_bed_entries(info_df=crispr_cas_df)
+        print("Also created BED files (if applicable).")
+
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
