@@ -131,3 +131,7 @@ pip install git/CRISPRdisco
 
 - The tool expects for each input file to find a nucleotide (fna) and
 amino acid (faa) sequence file.
+- The tool expects the input file to be a single genome; the output files
+do not list which contigs/sequence IDs contain the identified CRISRP arrays.
+  - Therefore, CRISPRdisco cannot (practically) analyse metagenomes and
+  needs to work on separate (genome) input files
