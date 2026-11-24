@@ -1,0 +1,6 @@
+jobs: 48
+jobname: Smk-{name}.{jobid}
+printshellcmds: true
+latency-wait: 10
+rerun-incomplete: true
+keep-going: true

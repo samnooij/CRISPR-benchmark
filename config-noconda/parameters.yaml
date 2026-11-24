@@ -1,0 +1,9 @@
+default_job:
+  threads: 1
+  memory: 1024
+  time: 60
+
+defensefinder:
+  threads: 16
+  memory: 8192
+  time: 1200
