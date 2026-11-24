@@ -7,7 +7,7 @@
 !/doc
 !/envs
 !/git
-!/resources
+!/resources/*-100kb
 !/workflow
 !.gitignore
 !pyproject.toml
