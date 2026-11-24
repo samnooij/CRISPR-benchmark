@@ -4,3 +4,6 @@
 [submodule "git/CRISPRCasFinder"]
 	path = git/CRISPRCasFinder
 	url = git@github.com:dcouvin/CRISPRCasFinder.git
+[submodule "git/CRISPRidentify"]
+	path = git/CRISPRidentify
+	url = git@github.com:Necopy-byte/CRISPRidentify.git
